@@ -517,6 +517,9 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
   const [canvasBg, setCanvasBg] = useState("#ffffff");
   const [currentPage, setCurrentPage] = useState(0);
   const [pageCount, setPageCount] = useState(3);
+  const [artboardW, setArtboardW] = useState(800);
+  const [artboardH, setArtboardH] = useState(600);
+  const [showCustomSizeModal, setShowCustomSizeModal] = useState(false);
   const artboardRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -1223,6 +1226,11 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
               setSelectedId(null);
             }
           },
+          onResizePreset: (w, h) => {
+            setArtboardW(w);
+            setArtboardH(h);
+          },
+          onCustomSize: () => setShowCustomSizeModal(true),
         }}
       />
       {/* MAIN */}
@@ -1252,7 +1260,19 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
           setCurrentPage={setCurrentPage}
           pageCount={pageCount}
           setPageCount={setPageCount}
+          artboardW={artboardW}
+          artboardH={artboardH}
         />
+        {showCustomSizeModal && (
+          <CustomSizeModal
+            onApply={(w, h) => {
+              setArtboardW(w);
+              setArtboardH(h);
+              setShowCustomSizeModal(false);
+            }}
+            onClose={() => setShowCustomSizeModal(false)}
+          />
+        )}
         {/* RIGHT PANEL */}
         <PropertiesPanel
           selected={selected}
@@ -1636,6 +1656,7 @@ const MENU_ITEMS: Record<string, string[]> = {
     "Presentation (1920×1080)",
     "A4 Document (794×1123)",
     "Twitter Header (1500×500)",
+    "Facebook Cover (820×312)",
   ],
   Arrangement: [
     "Bring to Front",
@@ -1670,6 +1691,213 @@ interface MenuActions {
   onSendBackward: () => void;
   onSendToBack: () => void;
   onNewDesign: () => void;
+  onResizePreset: (w: number, h: number) => void;
+  onCustomSize: () => void;
+}
+
+// ---- Custom Size Modal ----
+const PRESETS = [
+  { label: "Instagram Post", w: 1080, h: 1080 },
+  { label: "Facebook Cover", w: 820, h: 312 },
+  { label: "A4 Document", w: 794, h: 1123 },
+  { label: "Presentation", w: 1920, h: 1080 },
+  { label: "Twitter Header", w: 1500, h: 500 },
+  { label: "YouTube Thumbnail", w: 1280, h: 720 },
+];
+
+function CustomSizeModal({
+  onApply,
+  onClose,
+}: {
+  onApply: (w: number, h: number) => void;
+  onClose: () => void;
+}) {
+  const [w, setW] = useState(800);
+  const [h, setH] = useState(600);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.35)",
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+      onClick={onClose}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
+      role="presentation"
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 12,
+          boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+          padding: "28px 32px",
+          minWidth: 380,
+          maxWidth: 460,
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <h2
+          style={{
+            margin: "0 0 18px",
+            fontSize: 18,
+            fontWeight: 700,
+            color: "#1a1a2e",
+          }}
+        >
+          Custom Canvas Size
+        </h2>
+        <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
+          <div style={{ flex: 1 }}>
+            <label
+              htmlFor="cs-width"
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: "#6B7280",
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              WIDTH (px)
+            </label>
+            <input
+              id="cs-width"
+              type="number"
+              value={w}
+              min={1}
+              max={9999}
+              onChange={(e) =>
+                setW(Math.max(1, Number.parseInt(e.target.value) || 1))
+              }
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                border: "1.5px solid #E5E7EB",
+                borderRadius: 8,
+                fontSize: 15,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+              data-ocid="custom_size.input"
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label
+              htmlFor="cs-height"
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: "#6B7280",
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              HEIGHT (px)
+            </label>
+            <input
+              id="cs-height"
+              type="number"
+              value={h}
+              min={1}
+              max={9999}
+              onChange={(e) =>
+                setH(Math.max(1, Number.parseInt(e.target.value) || 1))
+              }
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                border: "1.5px solid #E5E7EB",
+                borderRadius: 8,
+                fontSize: 15,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+        </div>
+        <div style={{ marginBottom: 22 }}>
+          <p
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: "#6B7280",
+              margin: "0 0 8px",
+            }}
+          >
+            QUICK PRESETS
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {PRESETS.map((p) => (
+              <button
+                type="button"
+                key={p.label}
+                onClick={() => {
+                  setW(p.w);
+                  setH(p.h);
+                }}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 20,
+                  border: "1.5px solid #E5E7EB",
+                  background: w === p.w && h === p.h ? "#6366F1" : "#F9FAFB",
+                  color: w === p.w && h === p.h ? "#fff" : "#374151",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  fontWeight: 500,
+                  transition: "all 0.15s",
+                }}
+                data-ocid="custom_size.button"
+              >
+                {p.label} ({p.w}×{p.h})
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: "8px 20px",
+              borderRadius: 8,
+              border: "1.5px solid #E5E7EB",
+              background: "#fff",
+              color: "#374151",
+              fontSize: 14,
+              cursor: "pointer",
+              fontWeight: 500,
+            }}
+            data-ocid="custom_size.cancel_button"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onApply(w, h)}
+            style={{
+              padding: "8px 20px",
+              borderRadius: 8,
+              border: "none",
+              background: "#6366F1",
+              color: "#fff",
+              fontSize: 14,
+              cursor: "pointer",
+              fontWeight: 600,
+            }}
+            data-ocid="custom_size.confirm_button"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function MenuBar({
@@ -1699,6 +1927,12 @@ function MenuBar({
     "Bring Forward": menuActions.onBringForward,
     "Send Backward": menuActions.onSendBackward,
     "Send to Back": menuActions.onSendToBack,
+    "Instagram Post (1080×1080)": () => menuActions.onResizePreset(1080, 1080),
+    "Presentation (1920×1080)": () => menuActions.onResizePreset(1920, 1080),
+    "A4 Document (794×1123)": () => menuActions.onResizePreset(794, 1123),
+    "Twitter Header (1500×500)": () => menuActions.onResizePreset(1500, 500),
+    "Facebook Cover (820×312)": () => menuActions.onResizePreset(820, 312),
+    "Custom Size...": () => menuActions.onCustomSize(),
   };
 
   return (
@@ -2372,6 +2606,8 @@ function CanvasArea({
   setCurrentPage,
   pageCount,
   setPageCount,
+  artboardW,
+  artboardH,
 }: {
   elements: CanvasElement[];
   setSelectedId: (id: string | null) => void;
@@ -2386,10 +2622,9 @@ function CanvasArea({
   setCurrentPage: (p: number) => void;
   pageCount: number;
   setPageCount: (n: number) => void;
+  artboardW: number;
+  artboardH: number;
 }) {
-  const ARTBOARD_W = 800;
-  const ARTBOARD_H = 600;
-
   return (
     <div
       style={{
@@ -2413,11 +2648,11 @@ function CanvasArea({
             flexShrink: 0,
           }}
         />
-        <Ruler orientation="h" length={ARTBOARD_W} zoom={zoom} />
+        <Ruler orientation="h" length={artboardW} zoom={zoom} />
       </div>
 
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        <Ruler orientation="v" length={ARTBOARD_H} zoom={zoom} />
+        <Ruler orientation="v" length={artboardH} zoom={zoom} />
         {/* Canvas scroll area */}
         <div
           style={{
@@ -2436,8 +2671,8 @@ function CanvasArea({
           <div
             ref={artboardRef}
             style={{
-              width: ARTBOARD_W * zoom,
-              height: ARTBOARD_H * zoom,
+              width: artboardW * zoom,
+              height: artboardH * zoom,
               background: canvasBg,
               position: "relative",
               boxShadow: "0 4px 40px rgba(0,0,0,0.15)",
