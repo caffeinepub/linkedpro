@@ -26,19 +26,11 @@
         "noUnusedVariables": "error"
       },
       "suspicious": {
-        "noExplicitAny": "off",
-        "noAssignInExpressions": "off",
-        "noArrayIndexKey": "off"
+        "noExplicitAny": "off"
       },
       "style": {
         "useConst": "off",
         "noNonNullAssertion": "off"
-      },
-      "a11y": {
-        "useKeyWithClickEvents": "off",
-        "noSvgWithoutTitle": "off",
-        "useButtonType": "off",
-        "noLabelWithoutControl": "off"
       }
     }
   },

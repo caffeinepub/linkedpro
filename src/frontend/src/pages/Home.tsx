@@ -212,7 +212,14 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
               justifyContent: "center",
             }}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
+              <title>DesignStudio Logo</title>
               <rect x="2" y="2" width="5" height="5" rx="1" fill="white" />
               <rect
                 x="9"
@@ -249,6 +256,7 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
         <nav style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {["Features", "Templates", "Pricing", "Learn"].map((l) => (
             <button
+              type="button"
               key={l}
               style={{
                 padding: "6px 12px",
@@ -260,12 +268,12 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
                 fontWeight: 500,
                 cursor: "pointer",
               }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "#F3F4F6")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background = "transparent")
-              }
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#F3F4F6";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+              }}
             >
               {l}
             </button>
@@ -289,6 +297,7 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
             U
           </div>
           <button
+            type="button"
             onClick={onOpenEditor}
             style={{
               padding: "8px 20px",
@@ -301,8 +310,12 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
               cursor: "pointer",
               boxShadow: "0 2px 8px rgba(109,94,246,0.3)",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "#5B4FD4")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "#6D5EF6")}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#5B4FD4";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#6D5EF6";
+            }}
           >
             + New Design
           </button>
@@ -386,6 +399,9 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
             transition: "border-color 0.2s",
           }}
           onClick={onOpenEditor}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") onOpenEditor();
+          }}
           onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = "#6D5EF6";
             e.currentTarget.style.background = "#FAFAFA";
@@ -436,6 +452,7 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
         >
           {CATEGORIES.map((c) => (
             <button
+              type="button"
               key={c}
               onClick={() => setCategory(c)}
               style={{
@@ -469,6 +486,9 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
             <div
               key={t.id}
               onClick={onOpenEditor}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") onOpenEditor();
+              }}
               style={{
                 borderRadius: 12,
                 overflow: "hidden",
@@ -597,9 +617,9 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
                 marginBottom: 24,
               }}
             >
-              {ONBOARDING_STEPS.map((_, i) => (
+              {ONBOARDING_STEPS.map((step_item, i) => (
                 <div
-                  key={i}
+                  key={step_item.title}
                   style={{
                     width: i === step ? 20 : 8,
                     height: 8,
@@ -613,6 +633,7 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
             <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
               {step > 0 && (
                 <button
+                  type="button"
                   onClick={() => setStep((s) => s - 1)}
                   style={{
                     padding: "10px 24px",
@@ -630,6 +651,7 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
               )}
               {step < ONBOARDING_STEPS.length - 1 ? (
                 <button
+                  type="button"
                   onClick={() => setStep((s) => s + 1)}
                   style={{
                     padding: "10px 24px",
@@ -646,6 +668,7 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
                 </button>
               ) : (
                 <button
+                  type="button"
                   onClick={finishOnboarding}
                   style={{
                     padding: "10px 24px",
@@ -662,6 +685,7 @@ export default function Home({ onOpenEditor }: { onOpenEditor: () => void }) {
                 </button>
               )}
               <button
+                type="button"
                 onClick={finishOnboarding}
                 style={{
                   padding: "10px 16px",

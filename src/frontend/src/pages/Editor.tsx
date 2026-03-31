@@ -32,8 +32,11 @@ export interface CanvasElement {
 type Action =
   | { type: "ADD"; element: CanvasElement }
   | { type: "UPDATE"; id: string; changes: Partial<CanvasElement> }
+  | { type: "MOVE"; id: string; changes: Partial<CanvasElement> }
+  | { type: "COMMIT" }
   | { type: "DELETE"; id: string }
   | { type: "REORDER"; id: string; dir: "up" | "down" }
+  | { type: "REORDER_ABSOLUTE"; id: string; position: "front" | "back" }
   | { type: "UNDO" }
   | { type: "REDO" }
   | { type: "LOAD"; elements: CanvasElement[] };
@@ -157,6 +160,32 @@ function reducer(state: EditorState, action: Action): EditorState {
         future,
       };
     }
+    case "MOVE": {
+      const elements = state.elements.map((e) =>
+        e.id === action.id ? { ...e, ...action.changes } : e,
+      );
+      return { ...state, elements };
+    }
+    case "COMMIT": {
+      return {
+        elements: state.elements,
+        past: pushHistory(state.past, state.elements),
+        future: [],
+      };
+    }
+    case "REORDER_ABSOLUTE": {
+      const idx = state.elements.findIndex((e) => e.id === action.id);
+      if (idx < 0) return state;
+      const elements = state.elements.filter((e) => e.id !== action.id);
+      const el = state.elements[idx];
+      if (action.position === "front") elements.push(el);
+      else elements.unshift(el);
+      return {
+        elements,
+        past: pushHistory(state.past, state.elements),
+        future: [],
+      };
+    }
     default:
       return state;
   }
@@ -266,6 +295,190 @@ function genId() {
   return Math.random().toString(36).slice(2, 9);
 }
 
+// ---- TextEditor Component ----
+function TextEditor({
+  el,
+  onDone,
+}: { el: CanvasElement; onDone: (text: string) => void }) {
+  const [val, setVal] = useState(el.text || "");
+  return (
+    <textarea
+      key={el.id}
+      // biome-ignore lint/a11y/noAutofocus: textarea needs focus for inline text editing
+      autoFocus
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={() => onDone(val)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onDone(val);
+        e.stopPropagation();
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{
+        position: "absolute",
+        left: el.x,
+        top: el.y,
+        width: el.width,
+        minHeight: el.height,
+        opacity: el.opacity,
+        transform: `rotate(${el.rotation}deg)`,
+        color: el.fill,
+        fontSize: el.fontSize || 18,
+        fontFamily: el.fontFamily || "Inter",
+        fontWeight: el.fontWeight || "400",
+        fontStyle: el.fontStyle || "normal",
+        textDecoration: el.textDecoration || "none",
+        textAlign: (el.textAlign as React.CSSProperties["textAlign"]) || "left",
+        lineHeight: 1.4,
+        padding: 4,
+        boxSizing: "border-box",
+        outline: "2px solid #3B82F6",
+        background: "rgba(255,255,255,0.85)",
+        border: "none",
+        resize: "none",
+        zIndex: 100,
+        overflow: "hidden",
+      }}
+    />
+  );
+}
+
+// ---- UploadPane Component ----
+function UploadPane({
+  onAddElement,
+}: {
+  onAddElement: (
+    p: Partial<CanvasElement> & { type: CanvasElement["type"] },
+  ) => void;
+}) {
+  const [uploads, setUploads] = useState<
+    Array<{ id: string; name: string; dataUrl: string }>
+  >(() => {
+    try {
+      return JSON.parse(localStorage.getItem("ds_uploads") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function handleFiles(files: FileList | null) {
+    if (!files) return;
+    for (const file of Array.from(files)) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        const newUpload = {
+          id: Math.random().toString(36).slice(2),
+          name: file.name,
+          dataUrl,
+        };
+        setUploads((prev) => {
+          const next = [newUpload, ...prev];
+          localStorage.setItem("ds_uploads", JSON.stringify(next));
+          return next;
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => handleFiles(e.target.files)}
+      />
+      <button
+        type="button"
+        data-ocid="uploads.dropzone"
+        onClick={() => fileRef.current?.click()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") fileRef.current?.click();
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.currentTarget.style.borderColor = "#6D5EF6";
+        }}
+        onDragLeave={(e) => {
+          e.currentTarget.style.borderColor = "#D1D5DB";
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.currentTarget.style.borderColor = "#D1D5DB";
+          handleFiles(e.dataTransfer.files);
+        }}
+        style={{
+          border: "2px dashed #D1D5DB",
+          borderRadius: 10,
+          padding: "24px 16px",
+          cursor: "pointer",
+          textAlign: "center",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = "#6D5EF6";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = "#D1D5DB";
+        }}
+      >
+        <div style={{ fontSize: 28, marginBottom: 8 }}>⬆</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
+          Upload files
+        </div>
+        <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 4 }}>
+          PNG, JPG, GIF, SVG
+        </div>
+      </button>
+      {uploads.length > 0 && (
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}
+        >
+          {uploads.map((u) => (
+            // biome-ignore lint/a11y/useKeyWithClickEvents: upload card, keyboard handled via global shortcuts
+            <div
+              key={u.id}
+              onClick={() =>
+                onAddElement({
+                  type: "image",
+                  imageUrl: u.dataUrl,
+                  width: 200,
+                  height: 150,
+                  fill: "transparent",
+                })
+              }
+              style={{
+                height: 80,
+                borderRadius: 8,
+                overflow: "hidden",
+                cursor: "pointer",
+                border: "1px solid #E5E7EB",
+                background: "#F9FAFB",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "#6D5EF6";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "#E5E7EB";
+              }}
+            >
+              <img
+                src={u.dataUrl}
+                alt={u.name}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Main Editor ----
 export default function Editor({ onGoHome }: { onGoHome: () => void }) {
   const [state, dispatch] = useReducer(reducer, {
@@ -274,6 +487,9 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
     future: [],
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const clipboardRef = useRef<CanvasElement | null>(null);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [projectName, setProjectName] = useState(
@@ -363,6 +579,43 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
             });
           }
         }
+        if (e.key === "c") {
+          e.preventDefault();
+          if (selected) {
+            clipboardRef.current = { ...selected };
+          }
+        }
+        if (e.key === "x") {
+          e.preventDefault();
+          if (selected && selectedId) {
+            clipboardRef.current = { ...selected };
+            dispatch({ type: "DELETE", id: selectedId });
+            setSelectedId(null);
+            setSelectedIds([]);
+          }
+        }
+        if (e.key === "v") {
+          e.preventDefault();
+          if (clipboardRef.current) {
+            const newId = genId();
+            dispatch({
+              type: "ADD",
+              element: {
+                ...clipboardRef.current,
+                id: newId,
+                x: clipboardRef.current.x + 20,
+                y: clipboardRef.current.y + 20,
+              },
+            });
+            setSelectedId(newId);
+            setSelectedIds([]);
+          }
+        }
+        if (e.key === "a") {
+          e.preventDefault();
+          setSelectedIds(state.elements.map((el) => el.id));
+          setSelectedId(null);
+        }
       }
       if (selectedId) {
         const step = e.shiftKey ? 10 : 1;
@@ -402,7 +655,7 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedId, selected]);
+  }, [selectedId, selected, state.elements]);
 
   // Global mouse move / up for drag, resize, rotate
   useEffect(() => {
@@ -412,7 +665,7 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
         const nx = (e.clientX - rect.left) / zoom - dragging.ox;
         const ny = (e.clientY - rect.top) / zoom - dragging.oy;
         dispatch({
-          type: "UPDATE",
+          type: "MOVE",
           id: dragging.id,
           changes: { x: Math.round(nx / 8) * 8, y: Math.round(ny / 8) * 8 },
         });
@@ -437,7 +690,7 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
           ny = el.y + (el.height - nh);
         }
         dispatch({
-          type: "UPDATE",
+          type: "MOVE",
           id: resizing.id,
           changes: { x: nx, y: ny, width: nw, height: nh },
         });
@@ -449,13 +702,16 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
         const angle =
           Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI) + 90;
         dispatch({
-          type: "UPDATE",
+          type: "MOVE",
           id: rotating.id,
           changes: { rotation: Math.round(angle) },
         });
       }
     }
     function onUp() {
+      if (dragging || resizing || rotating) {
+        dispatch({ type: "COMMIT" });
+      }
       setDragging(null);
       setResizing(null);
       setRotating(null);
@@ -484,6 +740,7 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
     };
     dispatch({ type: "ADD", element: el });
     setSelectedId(el.id);
+    setSelectedIds([]);
   }
 
   function renderShape(el: CanvasElement) {
@@ -498,7 +755,7 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
       cursor: dragging?.id === el.id ? "grabbing" : "grab",
       boxSizing: "border-box",
     };
-    const isSelected = el.id === selectedId;
+    const isSelected = el.id === selectedId || selectedIds.includes(el.id);
     if (el.strokeColor && el.strokeWidth) {
       style.outline = `${el.strokeWidth}px solid ${el.strokeColor}`;
     }
@@ -515,6 +772,13 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
           onClick={(e) => {
             e.stopPropagation();
             setSelectedId(el.id);
+            setSelectedIds([]);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              setSelectedId(el.id);
+              setSelectedIds([]);
+            }
           }}
         >
           {isSelected && renderHandles(el)}
@@ -530,6 +794,13 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
           onClick={(e) => {
             e.stopPropagation();
             setSelectedId(el.id);
+            setSelectedIds([]);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              setSelectedId(el.id);
+              setSelectedIds([]);
+            }
           }}
         >
           <div
@@ -562,6 +833,13 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
           onClick={(e) => {
             e.stopPropagation();
             setSelectedId(el.id);
+            setSelectedIds([]);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              setSelectedId(el.id);
+              setSelectedIds([]);
+            }
           }}
         >
           ★{isSelected && renderHandles(el)}
@@ -583,6 +861,13 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
           onClick={(e) => {
             e.stopPropagation();
             setSelectedId(el.id);
+            setSelectedIds([]);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              setSelectedId(el.id);
+              setSelectedIds([]);
+            }
           }}
         >
           {isSelected && renderHandles(el)}
@@ -603,6 +888,11 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
           e.stopPropagation();
           setSelectedId(el.id);
         }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            setSelectedId(el.id);
+          }
+        }}
       >
         {isSelected && renderHandles(el)}
       </div>
@@ -610,7 +900,22 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
   }
 
   function renderText(el: CanvasElement) {
-    const isSelected = el.id === selectedId;
+    const isSelected = el.id === selectedId || selectedIds.includes(el.id);
+    const isEditing = editingTextId === el.id;
+
+    if (isEditing) {
+      return (
+        <TextEditor
+          key={el.id}
+          el={el}
+          onDone={(text) => {
+            dispatch({ type: "UPDATE", id: el.id, changes: { text } });
+            setEditingTextId(null);
+          }}
+        />
+      );
+    }
+
     return (
       <div
         key={el.id}
@@ -622,7 +927,7 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
           minHeight: el.height,
           opacity: el.opacity,
           transform: `rotate(${el.rotation}deg)`,
-          cursor: "grab",
+          cursor: isSelected ? "text" : "grab",
           color: el.fill,
           fontSize: el.fontSize || 18,
           fontFamily: el.fontFamily || "Inter",
@@ -642,8 +947,63 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
           e.stopPropagation();
           setSelectedId(el.id);
         }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            setSelectedId(el.id);
+          }
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          setEditingTextId(el.id);
+        }}
       >
         {el.text || "Text"}
+        {isSelected && renderHandles(el)}
+      </div>
+    );
+  }
+
+  function renderImage(el: CanvasElement) {
+    const isSelected = el.id === selectedId || selectedIds.includes(el.id);
+    const style: React.CSSProperties = {
+      position: "absolute",
+      left: el.x,
+      top: el.y,
+      width: el.width,
+      height: el.height,
+      opacity: el.opacity,
+      transform: `rotate(${el.rotation}deg)`,
+      cursor: dragging?.id === el.id ? "grabbing" : "grab",
+      boxSizing: "border-box",
+      outline: isSelected ? "2px solid #3B82F6" : "none",
+      overflow: "hidden",
+      borderRadius: el.borderRadius ? `${el.borderRadius}px` : 0,
+    };
+    return (
+      <div
+        key={el.id}
+        style={style}
+        onMouseDown={(e) => startDrag(e, el)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedId(el.id);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            setSelectedId(el.id);
+          }
+        }}
+      >
+        <img
+          src={el.imageUrl}
+          alt=""
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+          }}
+        />
         {isSelected && renderHandles(el)}
       </div>
     );
@@ -749,6 +1109,9 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
         overflow: "hidden",
       }}
       onClick={() => setFileMenu(null)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") setFileMenu(null);
+      }}
     >
       {/* TOP NAV */}
       <TopNav
@@ -767,7 +1130,101 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
         onGoHome={onGoHome}
       />
       {/* MENU BAR */}
-      <MenuBar fileMenu={fileMenu} setFileMenu={setFileMenu} />
+      <MenuBar
+        fileMenu={fileMenu}
+        setFileMenu={setFileMenu}
+        menuActions={{
+          onUndo: () => dispatch({ type: "UNDO" }),
+          onRedo: () => dispatch({ type: "REDO" }),
+          onDelete: () => {
+            if (selectedId) {
+              dispatch({ type: "DELETE", id: selectedId });
+              setSelectedId(null);
+            }
+          },
+          onSelectAll: () => {
+            setSelectedIds(state.elements.map((e) => e.id));
+            setSelectedId(null);
+          },
+          onCopy: () => {
+            if (selected) {
+              clipboardRef.current = { ...selected };
+            }
+          },
+          onCut: () => {
+            if (selected && selectedId) {
+              clipboardRef.current = { ...selected };
+              dispatch({ type: "DELETE", id: selectedId });
+              setSelectedId(null);
+              setSelectedIds([]);
+            }
+          },
+          onPaste: () => {
+            if (clipboardRef.current) {
+              const newId = genId();
+              dispatch({
+                type: "ADD",
+                element: {
+                  ...clipboardRef.current,
+                  id: newId,
+                  x: clipboardRef.current.x + 20,
+                  y: clipboardRef.current.y + 20,
+                },
+              });
+              setSelectedId(newId);
+              setSelectedIds([]);
+            }
+          },
+          onDuplicate: () => {
+            if (selected)
+              dispatch({
+                type: "ADD",
+                element: {
+                  ...selected,
+                  id: genId(),
+                  x: selected.x + 20,
+                  y: selected.y + 20,
+                },
+              });
+          },
+          onZoomIn: () => setZoom(Math.min(4, zoom + 0.25)),
+          onZoomOut: () => setZoom(Math.max(0.1, zoom - 0.25)),
+          onZoomFit: () => setZoom(1),
+          onZoomActual: () => setZoom(1),
+          onBringToFront: () => {
+            if (selectedId)
+              dispatch({
+                type: "REORDER_ABSOLUTE",
+                id: selectedId,
+                position: "front",
+              });
+          },
+          onBringForward: () => {
+            if (selectedId)
+              dispatch({ type: "REORDER", id: selectedId, dir: "up" });
+          },
+          onSendBackward: () => {
+            if (selectedId)
+              dispatch({ type: "REORDER", id: selectedId, dir: "down" });
+          },
+          onSendToBack: () => {
+            if (selectedId)
+              dispatch({
+                type: "REORDER_ABSOLUTE",
+                id: selectedId,
+                position: "back",
+              });
+          },
+          onNewDesign: () => {
+            if (
+              window.confirm("Start a new design? This will clear the canvas.")
+            ) {
+              dispatch({ type: "LOAD", elements: [] });
+              setSelectedId(null);
+            }
+          },
+        }}
+      />
       {/* MAIN */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* SIDEBAR RAIL */}
@@ -789,6 +1246,7 @@ export default function Editor({ onGoHome }: { onGoHome: () => void }) {
           artboardRef={artboardRef}
           renderShape={renderShape}
           renderText={renderText}
+          renderImage={renderImage}
           canvasBg={canvasBg}
           currentPage={currentPage}
           setCurrentPage={setCurrentPage}
@@ -867,6 +1325,7 @@ function TopNav({
     >
       {/* Logo */}
       <button
+        type="button"
         onClick={onGoHome}
         style={{
           display: "flex",
@@ -890,7 +1349,14 @@ function TopNav({
             justifyContent: "center",
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <title>DesignStudio</title>
             <rect x="2" y="2" width="5" height="5" rx="1" fill="white" />
             <rect
               x="9"
@@ -945,8 +1411,12 @@ function TopNav({
           }}
         />
       ) : (
-        <span
+        <button
+          type="button"
           onClick={() => setEditingName(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") setEditingName(true);
+          }}
           style={{
             color: "#F3F4F6",
             fontSize: 14,
@@ -955,15 +1425,19 @@ function TopNav({
             padding: "4px 8px",
             borderRadius: 6,
             transition: "background 0.15s",
+            border: "none",
+            background: "transparent",
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "#3B404A")}
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.background = "transparent")
-          }
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "#3B404A";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+          }}
         >
           {projectName}{" "}
           <span style={{ fontSize: 11, color: "#9CA3AF" }}>✎</span>
-        </span>
+        </button>
       )}
 
       <div style={{ flex: 1 }} />
@@ -974,6 +1448,7 @@ function TopNav({
         { fn: onRedo, label: "↪", enabled: canRedo, title: "Redo (Ctrl+Y)" },
       ].map((btn) => (
         <button
+          type="button"
           key={btn.title}
           title={btn.title}
           onClick={btn.fn}
@@ -991,12 +1466,12 @@ function TopNav({
             alignItems: "center",
             justifyContent: "center",
           }}
-          onMouseEnter={(e) =>
-            btn.enabled && (e.currentTarget.style.background = "#3B404A")
-          }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.background = "transparent")
-          }
+          onMouseEnter={(e) => {
+            if (btn.enabled) e.currentTarget.style.background = "#3B404A";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+          }}
         >
           {btn.label}
         </button>
@@ -1053,6 +1528,7 @@ function TopNav({
       </span>
 
       <button
+        type="button"
         style={{
           padding: "6px 16px",
           borderRadius: 6,
@@ -1063,13 +1539,18 @@ function TopNav({
           fontWeight: 500,
           cursor: "pointer",
         }}
-        onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#9CA3AF")}
-        onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#6B7280")}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = "#9CA3AF";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = "#6B7280";
+        }}
       >
         Share
       </button>
 
       <button
+        type="button"
         style={{
           padding: "6px 16px",
           borderRadius: 6,
@@ -1081,8 +1562,12 @@ function TopNav({
           cursor: "pointer",
           boxShadow: "0 2px 8px rgba(109,94,246,0.4)",
         }}
-        onMouseEnter={(e) => (e.currentTarget.style.background = "#5B4FD4")}
-        onMouseLeave={(e) => (e.currentTarget.style.background = "#6D5EF6")}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "#5B4FD4";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "#6D5EF6";
+        }}
       >
         ⬇ Download
       </button>
@@ -1167,10 +1652,55 @@ const MENU_ITEMS: Record<string, string[]> = {
   ],
 };
 
+interface MenuActions {
+  onUndo: () => void;
+  onRedo: () => void;
+  onDelete: () => void;
+  onSelectAll: () => void;
+  onDuplicate: () => void;
+  onCopy: () => void;
+  onCut: () => void;
+  onPaste: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onZoomFit: () => void;
+  onZoomActual: () => void;
+  onBringToFront: () => void;
+  onBringForward: () => void;
+  onSendBackward: () => void;
+  onSendToBack: () => void;
+  onNewDesign: () => void;
+}
+
 function MenuBar({
   fileMenu,
   setFileMenu,
-}: { fileMenu: string | null; setFileMenu: (v: string | null) => void }) {
+  menuActions,
+}: {
+  fileMenu: string | null;
+  setFileMenu: (v: string | null) => void;
+  menuActions: MenuActions;
+}) {
+  const ACTION_MAP: Record<string, () => void> = {
+    "Undo (Ctrl+Z)": menuActions.onUndo,
+    "Redo (Ctrl+Y)": menuActions.onRedo,
+    Delete: menuActions.onDelete,
+    "Select All": menuActions.onSelectAll,
+    "Duplicate (Ctrl+D)": menuActions.onDuplicate,
+    Copy: menuActions.onCopy,
+    Cut: menuActions.onCut,
+    Paste: menuActions.onPaste,
+    "New Design": menuActions.onNewDesign,
+    "Zoom In": menuActions.onZoomIn,
+    "Zoom Out": menuActions.onZoomOut,
+    "Fit Page": menuActions.onZoomFit,
+    "Actual Size": menuActions.onZoomActual,
+    "Bring to Front": menuActions.onBringToFront,
+    "Bring Forward": menuActions.onBringForward,
+    "Send Backward": menuActions.onSendBackward,
+    "Send to Back": menuActions.onSendToBack,
+  };
+
   return (
     <div
       style={{
@@ -1189,6 +1719,7 @@ function MenuBar({
       {Object.keys(MENU_ITEMS).map((label) => (
         <div key={label} style={{ position: "relative" }}>
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               setFileMenu(fileMenu === label ? null : label);
@@ -1203,7 +1734,9 @@ function MenuBar({
               fontWeight: 500,
               cursor: "pointer",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "#F3F4F6")}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#F3F4F6";
+            }}
             onMouseLeave={(e) => {
               if (fileMenu !== label)
                 e.currentTarget.style.background = "transparent";
@@ -1226,11 +1759,12 @@ function MenuBar({
                 zIndex: 100,
               }}
               onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
             >
-              {MENU_ITEMS[label].map((item, i) =>
+              {MENU_ITEMS[label].map((item) =>
                 item === "─" ? (
                   <div
-                    key={i}
+                    key="separator"
                     style={{
                       height: 1,
                       background: "#E5E7EB",
@@ -1239,7 +1773,8 @@ function MenuBar({
                   />
                 ) : (
                   <button
-                    key={i}
+                    type="button"
+                    key={item}
                     style={{
                       display: "block",
                       width: "100%",
@@ -1251,13 +1786,16 @@ function MenuBar({
                       fontSize: 13,
                       cursor: "pointer",
                     }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = "#F3F4F6")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = "transparent")
-                    }
-                    onClick={() => setFileMenu(null)}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "#F3F4F6";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                    }}
+                    onClick={() => {
+                      ACTION_MAP[item]?.();
+                      setFileMenu(null);
+                    }}
                   >
                     {item}
                   </button>
@@ -1292,6 +1830,7 @@ function SidebarRail({
     >
       {SIDEBAR_TABS.map((tab) => (
         <button
+          type="button"
           key={tab.id}
           onClick={() => setActiveTab(activeTab === tab.id ? null : tab.id)}
           title={tab.label}
@@ -1344,19 +1883,61 @@ function ContentPane({
   onChangeCanvasBg: (color: string) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [paneWidth, setPaneWidth] = useState(240);
+  const isDraggingPane = useRef(false);
+
+  const onResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingPane.current = true;
+    const startX = e.clientX;
+    const startW = paneWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!isDraggingPane.current) return;
+      const newW = Math.min(480, Math.max(160, startW + ev.clientX - startX));
+      setPaneWidth(newW);
+    };
+    const onUp = () => {
+      isDraggingPane.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   return (
     <div
       style={{
-        width: 240,
+        width: paneWidth,
         background: "#fff",
         borderRight: "1px solid #E5E7EB",
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
         overflowY: "hidden",
+        position: "relative",
       }}
     >
+      {/* Resize handle */}
+      <div
+        onMouseDown={onResizeMouseDown}
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          width: 5,
+          height: "100%",
+          cursor: "col-resize",
+          zIndex: 10,
+          background: "transparent",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "rgba(109,94,246,0.25)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+        }}
+      />
       {/* Search */}
       <div style={{ padding: "12px 12px 8px", flexShrink: 0 }}>
         <div style={{ position: "relative" }}>
@@ -1374,8 +1955,12 @@ function ContentPane({
               boxSizing: "border-box",
               background: "#F9FAFB",
             }}
-            onFocus={(e) => (e.currentTarget.style.borderColor = "#6D5EF6")}
-            onBlur={(e) => (e.currentTarget.style.borderColor = "#E5E7EB")}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "#6D5EF6";
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = "#E5E7EB";
+            }}
           />
           <span
             style={{
@@ -1411,9 +1996,9 @@ function ContentPane({
                 "#F59E0B",
                 "#EC4899",
                 "#EF4444",
-              ].map((c, i) => (
+              ].map((c) => (
                 <div
-                  key={i}
+                  key={c}
                   style={{
                     height: 80,
                     background: c,
@@ -1421,8 +2006,12 @@ function ContentPane({
                     cursor: "pointer",
                     opacity: 0.8,
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.8")}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = "1";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = "0.8";
+                  }}
                 />
               ))}
             </div>
@@ -1434,9 +2023,9 @@ function ContentPane({
                 gap: 8,
               }}
             >
-              {["#0EA5E9", "#8B5CF6", "#14B8A6", "#F97316"].map((c, i) => (
+              {["#0EA5E9", "#8B5CF6", "#14B8A6", "#F97316"].map((c) => (
                 <div
-                  key={i}
+                  key={c}
                   style={{
                     height: 80,
                     background: c,
@@ -1444,8 +2033,12 @@ function ContentPane({
                     cursor: "pointer",
                     opacity: 0.8,
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.8")}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = "1";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = "0.8";
+                  }}
                 />
               ))}
             </div>
@@ -1465,6 +2058,7 @@ function ContentPane({
             >
               {SHAPES.map((s) => (
                 <button
+                  type="button"
                   key={s.shapeType}
                   onClick={() =>
                     onAddElement({
@@ -1488,12 +2082,12 @@ function ContentPane({
                     justifyContent: "center",
                     gap: 2,
                   }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "#EEE9FF")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "#F9FAFB")
-                  }
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "#EEE9FF";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "#F9FAFB";
+                  }}
                 >
                   <span>{s.icon}</span>
                   <span style={{ fontSize: 10, color: "#6B7280" }}>
@@ -1510,6 +2104,7 @@ function ContentPane({
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {TEXT_PRESETS.map((p) => (
               <button
+                type="button"
                 key={p.label}
                 onClick={() =>
                   onAddElement({
@@ -1531,12 +2126,12 @@ function ContentPane({
                   cursor: "pointer",
                   fontFamily: "Inter, sans-serif",
                 }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.background = "#F9FAFB")
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.background = "#fff")
-                }
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "#F9FAFB";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "#fff";
+                }}
               >
                 <span
                   style={{
@@ -1553,32 +2148,7 @@ function ContentPane({
         )}
 
         {/* UPLOADS */}
-        {activeTab === "uploads" && (
-          <div style={{ textAlign: "center", padding: "20px 0" }}>
-            <div
-              style={{
-                border: "2px dashed #D1D5DB",
-                borderRadius: 10,
-                padding: "24px 16px",
-                cursor: "pointer",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.borderColor = "#6D5EF6")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.borderColor = "#D1D5DB")
-              }
-            >
-              <div style={{ fontSize: 28, marginBottom: 8 }}>⬆</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
-                Upload files
-              </div>
-              <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 4 }}>
-                PNG, JPG, GIF, SVG
-              </div>
-            </div>
-          </div>
-        )}
+        {activeTab === "uploads" && <UploadPane onAddElement={onAddElement} />}
 
         {/* PHOTOS */}
         {activeTab === "photos" && (
@@ -1602,7 +2172,7 @@ function ContentPane({
                 "#A7F3D0",
               ].map((c, i) => (
                 <div
-                  key={i}
+                  key={c}
                   onClick={() =>
                     onAddElement({
                       type: "shape",
@@ -1612,6 +2182,16 @@ function ContentPane({
                       height: 150,
                     })
                   }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ")
+                      onAddElement({
+                        type: "shape",
+                        shapeType: "rectangle",
+                        fill: c,
+                        width: 200,
+                        height: 150,
+                      });
+                  }}
                   style={{
                     height: 80,
                     background: c,
@@ -1624,8 +2204,12 @@ function ContentPane({
                     color: "#6B7280",
                     fontWeight: 500,
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
-                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = "0.8";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = "1";
+                  }}
                 >
                   Photo {i + 1}
                 </div>
@@ -1645,9 +2229,10 @@ function ContentPane({
                 gap: 6,
               }}
             >
-              {ICONS_SVG.map((icon, i) => (
+              {ICONS_SVG.map((icon) => (
                 <button
-                  key={i}
+                  type="button"
+                  key={icon}
                   onClick={() =>
                     onAddElement({
                       type: "text",
@@ -1669,12 +2254,12 @@ function ContentPane({
                     alignItems: "center",
                     justifyContent: "center",
                   }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "#EEE9FF")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "#F9FAFB")
-                  }
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "#EEE9FF";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "#F9FAFB";
+                  }}
                 >
                   {icon}
                 </button>
@@ -1694,10 +2279,13 @@ function ContentPane({
                 gap: 6,
               }}
             >
-              {BG_COLORS.slice(0, 12).map((c, i) => (
+              {BG_COLORS.slice(0, 12).map((c) => (
                 <div
-                  key={i}
+                  key={c}
                   onClick={() => onChangeCanvasBg(c)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") onChangeCanvasBg(c);
+                  }}
                   style={{
                     height: 40,
                     background: c,
@@ -1705,12 +2293,12 @@ function ContentPane({
                     cursor: "pointer",
                     border: "1px solid #E5E7EB",
                   }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.transform = "scale(1.05)")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.transform = "none")
-                  }
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "scale(1.05)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "none";
+                  }}
                 />
               ))}
             </div>
@@ -1722,18 +2310,25 @@ function ContentPane({
                 gap: 6,
               }}
             >
-              {BG_COLORS.slice(12).map((c, i) => (
+              {BG_COLORS.slice(12).map((c) => (
                 <div
-                  key={i}
+                  key={c}
                   onClick={() => onChangeCanvasBg(c)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") onChangeCanvasBg(c);
+                  }}
                   style={{
                     height: 60,
                     background: c,
                     borderRadius: 8,
                     cursor: "pointer",
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
-                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = "0.85";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = "1";
+                  }}
                 />
               ))}
             </div>
@@ -1771,6 +2366,7 @@ function CanvasArea({
   artboardRef,
   renderShape,
   renderText,
+  renderImage,
   canvasBg,
   currentPage,
   setCurrentPage,
@@ -1784,6 +2380,7 @@ function CanvasArea({
   artboardRef: React.RefObject<HTMLDivElement | null>;
   renderShape: (el: CanvasElement) => React.ReactNode;
   renderText: (el: CanvasElement) => React.ReactNode;
+  renderImage: (el: CanvasElement) => React.ReactNode;
   canvasBg: string;
   currentPage: number;
   setCurrentPage: (p: number) => void;
@@ -1832,6 +2429,9 @@ function CanvasArea({
             padding: 40,
           }}
           onClick={() => setSelectedId(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setSelectedId(null);
+          }}
         >
           <div
             ref={artboardRef}
@@ -1848,9 +2448,14 @@ function CanvasArea({
               overflow: "hidden",
             }}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
           >
             {elements.map((el) =>
-              el.type === "text" ? renderText(el) : renderShape(el),
+              el.type === "text"
+                ? renderText(el)
+                : el.type === "image"
+                  ? renderImage(el)
+                  : renderShape(el),
             )}
           </div>
         </div>
@@ -1872,6 +2477,7 @@ function CanvasArea({
         {/* Zoom */}
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <button
+            type="button"
             style={BtnStyle}
             onClick={() => setZoom(Math.max(0.1, zoom - 0.1))}
           >
@@ -1888,12 +2494,14 @@ function CanvasArea({
             {Math.round(zoom * 100)}%
           </span>
           <button
+            type="button"
             style={BtnStyle}
             onClick={() => setZoom(Math.min(4, zoom + 0.1))}
           >
             +
           </button>
           <button
+            type="button"
             style={{ ...BtnStyle, fontSize: 12, padding: "4px 8px" }}
             onClick={() => setZoom(1)}
           >
@@ -1902,10 +2510,13 @@ function CanvasArea({
         </div>
         {/* Page nav */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {Array.from({ length: pageCount }).map((_, i) => (
+          {Array.from({ length: pageCount }, (_, i) => i).map((i) => (
             <div
-              key={i}
+              key={`page-${i}`}
               onClick={() => setCurrentPage(i)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") setCurrentPage(i);
+              }}
               style={{
                 width: i === currentPage ? 20 : 8,
                 height: 8,
@@ -1917,6 +2528,7 @@ function CanvasArea({
             />
           ))}
           <button
+            type="button"
             style={{ ...BtnStyle, fontSize: 12 }}
             onClick={() => setPageCount(pageCount + 1)}
           >
@@ -2152,6 +2764,7 @@ function PropertiesPanel({
             <div style={{ display: "flex", gap: 4 }}>
               {["left", "center", "right", "justify"].map((align) => (
                 <button
+                  type="button"
                   key={align}
                   onClick={() => onUpdate({ textAlign: align })}
                   style={{
@@ -2197,6 +2810,7 @@ function PropertiesPanel({
                 },
               ].map((s) => (
                 <button
+                  type="button"
                   key={s.label}
                   onClick={() =>
                     onUpdate({
@@ -2293,12 +2907,41 @@ function PropertiesPanel({
             <PropLabel style={{ marginTop: 12 }}>Layer</PropLabel>
             <div style={{ display: "flex", gap: 8 }}>
               <button
+                type="button"
                 onClick={() => onReorder("up")}
                 style={{ ...SmallBtnStyle }}
               >
                 ▲ Forward
               </button>
               <button
+                type="button"
+                onClick={() => onReorder("down")}
+                style={{ ...SmallBtnStyle }}
+              >
+                ▼ Backward
+              </button>
+            </div>
+          </>
+        )}
+
+        {selected?.type === "image" && (
+          <>
+            <OpacityRow
+              value={selected.opacity}
+              onChange={(v) => onUpdate({ opacity: v })}
+            />
+            <PositionSize el={selected} onUpdate={onUpdate} />
+            <PropLabel style={{ marginTop: 12 }}>Layer</PropLabel>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => onReorder("up")}
+                style={{ ...SmallBtnStyle }}
+              >
+                ▲ Forward
+              </button>
+              <button
+                type="button"
                 onClick={() => onReorder("down")}
                 style={{ ...SmallBtnStyle }}
               >
@@ -2310,6 +2953,7 @@ function PropertiesPanel({
 
         {selected && (
           <button
+            type="button"
             onClick={onDelete}
             style={{
               marginTop: 20,
@@ -2323,8 +2967,12 @@ function PropertiesPanel({
               fontWeight: 600,
               cursor: "pointer",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "#FEE2E2")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "#FEF2F2")}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#FEE2E2";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#FEF2F2";
+            }}
           >
             🗑 Delete Element
           </button>
@@ -2398,6 +3046,7 @@ function ColorRow({
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
       <label
+        htmlFor="color-picker-input"
         style={{
           width: 32,
           height: 32,
@@ -2411,6 +3060,7 @@ function ColorRow({
       >
         {!isGradient && (
           <input
+            id="color-picker-input"
             type="color"
             value={value}
             onChange={(e) => onChange(e.target.value)}
